@@ -19,10 +19,7 @@ TEST_MODULES = \
     propagate.so \
     misc.so \
     hooks.so \
-    blockonkeys.so \
-    scan.so \
-    datatype.so \
-    auth.so
+    blockonkeys.so
 
 .PHONY: all
 

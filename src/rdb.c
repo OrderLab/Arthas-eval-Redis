@@ -1871,10 +1871,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
         }
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
-        if (rioGetReadError(rdb)) {
-            rdbReportReadError("Short read module id");
-            return NULL;
-        }
+        if (rioGetReadError(rdb)) return NULL;
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
         char name[10];
 
@@ -2009,7 +2006,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         /* The DB can take some non trivial amount of time to load. Update
          * our cached time since it is used to create and update the last
          * interaction time with clients and for other important things. */
-        updateCachedTime(0);
+        updateCachedTime();
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
@@ -2195,7 +2192,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 io.ver = 2;
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
-                if (mt->aux_load(&io,moduleid&1023, when) != REDISMODULE_OK || io.error) {
+                if (mt->aux_load(&io,moduleid&1023, when) || io.error) {
                     moduleTypeNameByID(name,moduleid);
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
                     exit(1);
@@ -2231,7 +2228,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
-        if (iAmMaster() && !(rdbflags&RDBFLAGS_AOF_PREAMBLE) && expiretime != -1 && expiretime < now) {
+        if (server.masterhost == NULL && !(rdbflags&RDBFLAGS_AOF_PREAMBLE) && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
         } else {
@@ -2242,7 +2239,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
 
             /* Set usage information (for eviction). */
-            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
+            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
             /* Decrement the key refcount since dbAdd() will take its
              * own reference. */

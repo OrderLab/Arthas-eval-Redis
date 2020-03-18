@@ -135,14 +135,6 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
     zfree(eventLoop->fired);
-
-    /* Free the time events list. */
-    aeTimeEvent *next_te, *te = eventLoop->timeEventHead;
-    while (te) {
-        next_te = te->next;
-        zfree(te);
-        te = next_te;
-    }
     zfree(eventLoop);
 }
 
@@ -464,7 +456,6 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             if (!invert && fe->mask & mask & AE_READABLE) {
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
-                fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
             }
 
             /* Fire the writable event. */
@@ -477,11 +468,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
-            if (invert) {
-                fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
-                if ((fe->mask & mask & AE_READABLE) &&
-                    (!fired || fe->wfileProc != fe->rfileProc))
-                {
+            if (invert && fe->mask & mask & AE_READABLE) {
+                if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
                 }

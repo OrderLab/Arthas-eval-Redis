@@ -33,3 +33,17 @@ deps/lua/src/liblua.a
 Makefile.dep
 .vscode/*
 .idea/*
+deps/pmdk
+src/benchmarkScript
+src/data.txt
+src/expand
+src/expand.txt	
+src/listpack.c~
+src/pythonscript1.py
+src/refreshScript
+src/server.c~
+src/set_million
+src/set_million.c
+src/shrink
+src/shrink.txt
+src/expand.txt

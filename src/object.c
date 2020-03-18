@@ -39,6 +39,12 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObject(int type, void *ptr) {
+    /*robj *o;
+    TX_BEGIN(server.pm_pool){
+	PMEMoid oid;
+	oid = pmemobj_tx_zalloc(sizeof(robj),3);
+	o = pmemobj_direct(oid);
+    }TX_END*/
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
@@ -606,13 +612,21 @@ size_t stringObjectLen(robj *o) {
 
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
+    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            if (!string2d(o->ptr, sdslen(o->ptr), &value))
+            errno = 0;
+            value = strtod(o->ptr, &eptr);
+            if (sdslen(o->ptr) == 0 ||
+                isspace(((const char*)o->ptr)[0]) ||
+                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
+                (errno == ERANGE &&
+                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -640,13 +654,21 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
 
 int getLongDoubleFromObject(robj *o, long double *target) {
     long double value;
+    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            if (!string2ld(o->ptr, sdslen(o->ptr), &value))
+            errno = 0;
+            value = strtold(o->ptr, &eptr);
+            if (sdslen(o->ptr) == 0 ||
+                isspace(((const char*)o->ptr)[0]) ||
+                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
+                (errno == ERANGE &&
+                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -975,28 +997,37 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mem;
 
     mem = 0;
+    if (listLength(server.slaves)) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            client *c = listNodeValue(ln);
+            mem += getClientOutputBufferMemoryUsage(c);
+            mem += sdsAllocSize(c->querybuf);
+            mem += sizeof(client);
+        }
+    }
+    mh->clients_slaves = mem;
+    mem_total+=mem;
+
+    mem = 0;
     if (listLength(server.clients)) {
         listIter li;
         listNode *ln;
-        size_t mem_normal = 0, mem_slaves = 0;
 
         listRewind(server.clients,&li);
         while((ln = listNext(&li))) {
-            size_t mem_curr = 0;
             client *c = listNodeValue(ln);
-            int type = getClientType(c);
-            mem_curr += getClientOutputBufferMemoryUsage(c);
-            mem_curr += sdsAllocSize(c->querybuf);
-            mem_curr += sizeof(client);
-            if (type == CLIENT_TYPE_SLAVE)
-                mem_slaves += mem_curr;
-            else
-                mem_normal += mem_curr;
+            if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
+                continue;
+            mem += getClientOutputBufferMemoryUsage(c);
+            mem += sdsAllocSize(c->querybuf);
+            mem += sizeof(client);
         }
-        mh->clients_slaves = mem_slaves;
-        mh->clients_normal = mem_normal;
-        mem = mem_slaves + mem_normal;
     }
+    mh->clients_normal = mem;
     mem_total+=mem;
 
     mem = 0;
@@ -1102,13 +1133,13 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Allocator rss is higher than 1.1 and 10MB ? */
+        /* Allocator fss is higher than 1.1 and 10MB ? */
         if (mh->allocator_rss > 1.1 && mh->allocator_rss_bytes > 10<<20) {
             high_alloc_rss = 1;
             num_reports++;
         }
 
-        /* Non-Allocator rss is higher than 1.1 and 10MB ? */
+        /* Non-Allocator fss is higher than 1.1 and 10MB ? */
         if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
             high_proc_rss = 1;
             num_reports++;
@@ -1185,7 +1216,7 @@ sds getMemoryDoctorReport(void) {
  * is MAXMEMORY_FLAG_LRU.
  * Either or both of them may be <0, in that case, nothing is set. */
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
-                       long long lru_clock, int lru_multiplier) {
+                       long long lru_clock) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         if (lfu_freq >= 0) {
             serverAssert(lfu_freq <= 255);
@@ -1197,7 +1228,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * according to the LRU clock resolution this Redis
          * instance was compiled with (normally 1000 ms, so the
          * below statement will expand to lru_idle*1000/1000. */
-        lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
+        lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
         /* If the LRU field underflows (since LRU it is a wrapping
          * clock), the best we can do is to provide a large enough LRU

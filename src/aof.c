@@ -242,7 +242,6 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
-    server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
 }
 
@@ -782,26 +781,18 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
-        /* Load the next command in the AOF as our fake client
-         * argv. */
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
         for (j = 0; j < argc; j++) {
-            /* Parse the argument len. */
-            char *readres = fgets(buf,sizeof(buf),fp);
-            if (readres == NULL || buf[0] != '$') {
+            if (fgets(buf,sizeof(buf),fp) == NULL) {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
-                if (readres == NULL)
-                    goto readerr;
-                else
-                    goto fmterr;
+                goto readerr;
             }
+            if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
-
-            /* Read it into a string object. */
             argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
@@ -810,12 +801,10 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
-
-            /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr;
+                goto readerr; /* discard CRLF */
             }
         }
 
@@ -1150,7 +1139,7 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
     int retval;
 
     sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    retval = rioWriteBulkString(r,replyid,sdslen(replyid));
+    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
     sdsfree(replyid);
     return retval;
 }
@@ -1777,7 +1766,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
-            server.aof_fsync_offset = server.aof_current_size;
+            server.aof_current_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
@@ -1798,15 +1787,14 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
-        server.aof_lastbgrewrite_status = C_ERR;
-
-        serverLog(LL_WARNING,
-            "Background AOF rewrite terminated with error");
-    } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
+        serverLog(LL_WARNING,
+            "Background AOF rewrite terminated with error");
+    } else {
+        server.aof_lastbgrewrite_status = C_ERR;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);

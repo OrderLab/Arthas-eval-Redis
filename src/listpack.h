@@ -57,5 +57,5 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
 uint32_t lpBytes(unsigned char *lp);
 unsigned char *lpSeek(unsigned char *lp, long index);
-
+extern uint64_t pmem_pool;
 #endif

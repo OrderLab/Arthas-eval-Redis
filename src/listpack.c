@@ -42,6 +42,10 @@
 #include "listpack.h"
 #include "listpack_malloc.h"
 
+#ifdef USE_PMEM
+#include "libpmemobj.h"
+#endif
+
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
 #define LP_MAX_INT_ENCODING_LEN 9
@@ -114,6 +118,7 @@
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
 
+uint64_t pmem_pool;
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
  * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
@@ -204,7 +209,13 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 /* Create a new, empty listpack.
  * On success the new listpack is returned, otherwise an error is returned. */
 unsigned char *lpNew(void) {
-    unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
+    unsigned char *lp;
+    TX_BEGIN(pmem_pool){
+	PMEMoid oid;
+        oid = pmemobj_tx_zalloc(sizeof(LP_HDR_SIZE+1), 2); // Type 5 maybe for hashtables ONLY?
+        lp = pmemobj_direct(oid);
+    }TX_END
+    //unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
@@ -657,7 +668,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 
     /* Realloc before: we need more room. */
     if (new_listpack_bytes > old_listpack_bytes) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+	TX_BEGIN(pmem_pool){
+		PMEMoid oid;
+		oid = pmemobj_oid(lp);
+		oid = pmemobj_tx_realloc(oid, new_listpack_bytes, 2);
+		lp = pmemobj_direct(oid);
+	}TX_END
+        //if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }
 
@@ -674,7 +691,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 
     /* Realloc after: we need to free space. */
     if (new_listpack_bytes < old_listpack_bytes) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+	TX_BEGIN(pmem_pool){
+		PMEMoid oid;
+		oid = pmemobj_oid(lp);
+		oid = pmemobj_tx_realloc(oid, new_listpack_bytes, 2);
+		lp = pmemobj_direct(oid);
+	}TX_END
+        //if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }
 

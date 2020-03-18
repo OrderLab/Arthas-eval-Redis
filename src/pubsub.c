@@ -35,11 +35,7 @@ int clientSubscriptionsCount(client *c);
  * Pubsub client replies API
  *----------------------------------------------------------------------------*/
 
-/* Send a pubsub message of type "message" to the client.
- * Normally 'msg' is a Redis object containing the string to send as
- * message. However if the caller sets 'msg' as NULL, it will be able
- * to send a special message (for instance an Array type) by using the
- * addReply*() API family. */
+/* Send a pubsub message of type "message" to the client. */
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
@@ -47,7 +43,7 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
         addReplyPushLen(c,3);
     addReply(c,shared.messagebulk);
     addReplyBulk(c,channel);
-    if (msg) addReplyBulk(c,msg);
+    addReplyBulk(c,msg);
 }
 
 /* Send a pubsub message of type "pmessage" to the client. The difference

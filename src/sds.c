@@ -141,6 +141,8 @@ sds sdsnewlen(const void *init, size_t initlen) {
     if (initlen && init)
         memcpy(s, init, initlen);
     s[initlen] = '\0';
+    printf("ending\n");
+    printf("string %s\n", s);
     return s;
 }
 
@@ -158,6 +160,7 @@ sds sdsnew(const char *init) {
 
 /* Duplicate an sds string. */
 sds sdsdup(const sds s) {
+    printf("begin sdsdup\n");
     return sdsnewlen(s, sdslen(s));
 }
 
