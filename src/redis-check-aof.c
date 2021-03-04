@@ -33,11 +33,11 @@
 
 #define ERROR(...) { \
     char __buf[1024]; \
-    snprintf(__buf, sizeof(__buf), __VA_ARGS__); \
-    snprintf(error, sizeof(error), "0x%16llx: %s", (long long)epos, __buf); \
+    sprintf(__buf, __VA_ARGS__); \
+    sprintf(error, "0x%16llx: %s", (long long)epos, __buf); \
 }
 
-static char error[1044];
+static char error[1024];
 static off_t epos;
 
 int consumeNewline(char *buf) {

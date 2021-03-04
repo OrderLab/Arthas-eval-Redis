@@ -41,6 +41,8 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_STRING){
+       return 65;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -52,6 +54,7 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * will be reclaimed in a different bio.c thread. */
 #define LAZYFREE_THRESHOLD 64
 int dbAsyncDelete(redisDb *db, robj *key) {
+    printf("async delete\n");
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -76,6 +79,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
+            printf("created bio job\n");
+
         }
     }
 
@@ -127,8 +132,11 @@ void slotToKeyFlushAsync(void) {
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
 void lazyfreeFreeObjectFromBioThread(robj *o) {
-    decrRefCount(o);
+    printf("first\n");
+    exit(-1);
+    decrRefCountPM(o);
     atomicDecr(lazyfree_objects,1);
+    printf("second\n");
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the

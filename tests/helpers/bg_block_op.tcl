@@ -1,8 +1,6 @@
 source tests/support/redis.tcl
 source tests/support/util.tcl
 
-set ::tlsdir "tests/tls"
-
 # This function sometimes writes sometimes blocking-reads from lists/sorted
 # sets. There are multiple processes like this executing at the same time
 # so that we have some chance to trap some corner condition if there is
@@ -10,8 +8,8 @@ set ::tlsdir "tests/tls"
 # space to just a few elements, and balance the operations so that it is
 # unlikely that lists and zsets just get more data without ever causing
 # blocking.
-proc bg_block_op {host port db ops tls} {
-    set r [redis $host $port 0 $tls]
+proc bg_block_op {host port db ops} {
+    set r [redis $host $port]
     $r select $db
 
     for {set j 0} {$j < $ops} {incr j} {
@@ -51,4 +49,4 @@ proc bg_block_op {host port db ops tls} {
     }
 }
 
-bg_block_op [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4]
+bg_block_op [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3]

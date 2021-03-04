@@ -1,0 +1,12 @@
+ SET key0 value0
+ SET key1 value1
+ SET key2 value2
+ SET key3 value3
+ SET key4 value4
+ SET key5 value5
+ SET key6 value6
+ SET key7 value7
+ SET key8 value8
+ SET key9 value9
+ SET key value
+ UNLINK key

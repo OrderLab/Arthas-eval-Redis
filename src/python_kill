@@ -1,0 +1,21 @@
+#!/bin/bash
+# ps -ef | grep pythonscript | grep -v grep | awk '{print $2}' | sudo xargs kill
+if [ ! -f python.pid ]; then
+  echo "No prior run found. Skip"
+  exit 0
+fi
+python_pid=$(cat python.pid)
+if [ -z "$python_pid" ];then
+  echo "Empty pid file. Skip"
+  rm python.pid
+  exit 0
+fi
+kill -9 $python_pid
+if [ $? -eq 0 ]; then
+  echo "Stopped python script (PID $python_pid)"
+  rm python.pid
+else
+  echo "Failed to stop python script (PID $python_pid)"
+fi
+
+exit 0

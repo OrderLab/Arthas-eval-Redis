@@ -1,0 +1,4 @@
+#!/bin/bash
+gcc -o set_million set_million.c
+./set_million
+cat data.txt | ./redis-cli --pipe

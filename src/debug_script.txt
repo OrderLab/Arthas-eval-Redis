@@ -1,0 +1,9 @@
+SET key0 val0
+SET key1 val1
+SET key2 val2
+SET key3 val3
+SET key4 val4
+SET key5 val5
+SET key6 val6
+SET key7 val7
+

@@ -1,0 +1,4 @@
+#!/bin/bash
+extract-bc redis-server
+opt -loweratomic <redis-server.bc> redis-server-lower.bc
+

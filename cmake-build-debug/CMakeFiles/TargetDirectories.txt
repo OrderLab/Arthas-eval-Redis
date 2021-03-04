@@ -1,0 +1,3 @@
+/home/parv/redis-pmem/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/parv/redis-pmem/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/parv/redis-pmem/cmake-build-debug/CMakeFiles/redis_pmem.dir

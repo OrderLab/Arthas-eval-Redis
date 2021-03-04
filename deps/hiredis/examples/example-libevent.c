@@ -9,12 +9,7 @@
 
 void getCallback(redisAsyncContext *c, void *r, void *privdata) {
     redisReply *reply = r;
-    if (reply == NULL) {
-        if (c->errstr) {
-            printf("errstr: %s\n", c->errstr);
-        }
-        return;
-    }
+    if (reply == NULL) return;
     printf("argv[%s]: %s\n", (char*)privdata, reply->str);
 
     /* Disconnect after receiving the reply to GET */
@@ -40,14 +35,8 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
 int main (int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     struct event_base *base = event_base_new();
-    redisOptions options = {0};
-    REDIS_OPTIONS_SET_TCP(&options, "127.0.0.1", 6379);
-    struct timeval tv = {0};
-    tv.tv_sec = 1;
-    options.timeout = &tv;
 
-
-    redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
+    redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
     if (c->err) {
         /* Let *c leak for now... */
         printf("Error: %s\n", c->errstr);

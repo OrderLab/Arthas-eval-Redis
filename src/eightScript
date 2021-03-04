@@ -1,0 +1,3 @@
+#!/bin/bash
+gcc -o set_eight set_eight.c
+./set_eight

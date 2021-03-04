@@ -1,0 +1,1 @@
+kill -9 $(ps -eo comm,pid,etimes | awk '/^redis-server/ {if ($3 > 2.5) { print $2}}')

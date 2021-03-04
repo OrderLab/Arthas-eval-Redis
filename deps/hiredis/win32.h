@@ -2,18 +2,8 @@
 #define _WIN32_HELPER_INCLUDE
 #ifdef _MSC_VER
 
-#include <winsock2.h> /* for struct timeval */
-
 #ifndef inline
 #define inline __inline
-#endif
-
-#ifndef strcasecmp
-#define strcasecmp stricmp
-#endif
-
-#ifndef strncasecmp
-#define strncasecmp strnicmp
 #endif
 
 #ifndef va_copy
@@ -47,10 +37,6 @@ __inline int c99_snprintf(char* str, size_t size, const char* format, ...)
     return count;
 }
 #endif
-#endif /* _MSC_VER */
 
-#ifdef _WIN32
-#define strerror_r(errno,buf,len) strerror_s(buf,len,errno)
-#endif /* _WIN32 */
-
-#endif /* _WIN32_HELPER_INCLUDE */
+#endif
+#endif

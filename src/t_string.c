@@ -28,8 +28,18 @@
  */
 
 #include "server.h"
+#include "dict.h"
+#ifdef USE_PMEM
+#include "libpmemobj.h"
+#endif
 #include <math.h> /* isnan(), isinf() */
+#include <libpmemobj/base.h>
 
+double times[200000];
+double latency_times[10000001];
+int times_count = 0;
+int set_count = 0;
+clock_t set_start;
 /*-----------------------------------------------------------------------------
  * String Commands
  *----------------------------------------------------------------------------*/
@@ -41,12 +51,11 @@ static int checkStringLength(client *c, long long size) {
     }
     return C_OK;
 }
-
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
  *
- * 'flags' changes the behavior of the command (NX or XX, see below).
+ * 'flags' changes the behavior of the command (NX or XX, see belove).
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
@@ -59,15 +68,26 @@ static int checkStringLength(client *c, long long size) {
  * If abort_reply is NULL, "$-1" is used. */
 
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)          /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)          /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
-#define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
+#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
+#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
+#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
+#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+	FILE *out_file;
+	if(set_count == 0){
+		set_start = clock();
+	}
+	else if (set_count == 9999999){
+		out_file = fopen("throughput.txt", "w+");
+	}
+	clock_t start = clock();
+    //clock_t start = clock();
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-
+#ifdef USE_PMEM
+    robj* newVal = 0;
+    robj* newKey = 0;
+#endif
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
@@ -84,16 +104,126 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
-    genericSetKey(c->db,key,val,flags & OBJ_SET_KEEPTTL);
+#ifdef USE_PMEM
+        /* Copy value from RAM to PM - create RedisObject and sds(value) */
+        /* TODO: Remove bookKeeper */
+            struct bookKeeper *book = zmalloc(sizeof(struct bookKeeper));
+        //clock_t end = clock();
+        //double time_here = (double)(end - set_start) / CLOCKS_PER_SEC;
+        //printf("Beginning of setKeypm %f\n", time_here);
+        //start = clock();
+        TX_BEGIN (server.pm_pool) {
+
+            book->dict_offset = -1;
+        /* TODO: Remove the last argument from dupStringObjectPM */
+            newVal = dupStringObjectPM(val, book, false, &c->db->dict->ht[0]);
+	    //char temp[3] = "ab";
+            newKey = dupStringObjectPM(key, book, true, &c->db->dict->ht[0]);
+            //end = clock();
+            //time_here = (double)(end - set_start) / CLOCKS_PER_SEC;
+            //printf("Dup String ObjectPM %f\n", time_here);
+            //start = clock();
+		//memcpy(newVal->ptr, "ab", 2);
+		//printf("%s\n", newVal->ptr);
+            /* Set key in PM - create DictEntry and sds(key) linked to RedisObject with value
+             * Don't increment value "ref counter" as in normal process. */
+            //printf("%d\n", newVal->type);
+            //pmemobj_tx_add_range_direct(newVal, (sizeof(robj)));
+            //pmemobj_tx_add_range_direct(newKey, (sizeof(robj)));
+            //newKey->type = OBJ_LIST;
+            //newVal->type = OBJ_LIST;
+            setKeyPM(c->db, newKey,newVal, book);
+            //end = clock();
+            //time_here = (double)(end - set_start) / CLOCKS_PER_SEC;
+            //printf("setKeyPM %f\n", time_here);
+            //start = clock();
+            if(book->dict_offset == -1) {
+                // This means that this was a value replacement command
+                sdsfreePM(newKey->ptr);
+                // free r_object
+                PMEMoid oid;
+                oid.off = book->sds_robj_offset;
+                oid.pool_uuid_lo = server.pool_uuid;
+                pmemobj_tx_free(oid);
+		set_count++;
+            } else {
+                char* actual= book->val_offset + (uint64_t)server.pm_pool;
+		set_count++;
+            }
+        } TX_ONABORT {
+            printf("\n\n\n\n\n\ +++*********** Set command aborted, good luck finding that out \n\n\n\n\n\n\n");
+        } TX_ONCOMMIT {
+	       clock_t end = clock();
+
+	    if(set_count % 100 == 0){
+	    	times[times_count] = (double)(end - set_start) / CLOCKS_PER_SEC;
+	    	times_count++;
+	    }
+		if(set_count == 10000000){
+                printf("BEGIN\n");
+                double total = 0;
+                for(int ind = 1; ind < times_count; ind++){
+                       	 	fprintf(out_file, "%f\n", 100/(times[ind] - (times[ind - 1])));
+				total += 100/(times[ind] - (times[ind - 1]));
+                	}
+                	fclose(out_file);
+			printf("END\n");
+			printf("total avg is %f\n", total / times_count);
+                	//fclose(out_file);
+          	}
+		/*double time_here = (double)(end - start)/CLOCKS_PER_SEC;
+		latency_times[set_count - 1] = time_here;
+	 	if(set_count == 1000000){
+			for(int ind = 0; ind < 1000000; ind++){
+				fprintf(out_file, "%f\n", latency_times[ind]*1000000);
+			}
+			fclose(out_file);
+			//double total = 0;
+                        //double avg_latency = 0;
+                        //for(int ind = 0; ind < 50000000; ind++){
+                        //        total += latency_times[ind];
+                                //fprintf(out_file, "%f\n", latency_times[ind]);
+                        //}
+                        //avg_latency = total/50000000;
+                        //printf("average latency %.10lf\n", avg_latency);
+		}*/
+            //if(set_count >= 50000000){
+	//	for(int ind = 0; ind < times_count; ind++){
+	//	fprintf(out_file, "%d,%f\n", ind * 100, times[ind]); 
+	  //   }
+	 //   }
+        } TX_FINALLY {
+            zfree(book);
+        } TX_END
+        TX_BEGIN(server.pm_pool){
+            pmemobj_tx_add_range_direct(newVal, (sizeof(robj)));
+            //pmemobj_tx_add_range_direct(newKey, (sizeof(robj)));
+        }TX_END
+        //end = clock();
+            //time_here = (double)(end - set_start) / CLOCKS_PER_SEC;
+            //printf("end of transaction %f\n", time_here);
+            //start = clock();
+#else
+    setKey(c->db,key,val);
+#endif
+#ifdef USE_PMEM
+    server.dirty++;
+    if (expire) setExpire(c,c->db,newKey,mstime()+milliseconds);
+    // QUESTION IS DO I NEED TO CHANGE THIS BACK TO KEY
+    notifyKeyspaceEvent(NOTIFY_STRING,"set",newKey,c->db->id);
+    if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
+        "expire",newKey,c->db->id);
+#else
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
+#endif
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
-/* SET key value [NX] [XX] [KEEPTTL] [EX <seconds>] [PX <milliseconds>] */
+/* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -114,13 +244,8 @@ void setCommand(client *c) {
                    !(flags & OBJ_SET_NX))
         {
             flags |= OBJ_SET_XX;
-        } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
-                   !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
-        {
-            flags |= OBJ_SET_KEEPTTL;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_KEEPTTL) &&
                    !(flags & OBJ_SET_PX) && next)
         {
             flags |= OBJ_SET_EX;
@@ -129,7 +254,6 @@ void setCommand(client *c) {
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_KEEPTTL) &&
                    !(flags & OBJ_SET_EX) && next)
         {
             flags |= OBJ_SET_PX;
@@ -163,15 +287,56 @@ void psetexCommand(client *c) {
 
 int getGenericCommand(client *c) {
     robj *o;
+	FILE *out_file;
+    //if(set_count == 199999)
+//		out_file = fopen("throughput.txt", "w+");
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
-        return C_OK;
 
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL){
+    //   set_count++;
+    //clock_t end = clock();
+      //      if(set_count % 100 == 0){
+        //        times[times_count] = (double)(end - set_start) / CLOCKS_PER_SEC;
+         //       times_count++;
+          //  }
+ //if(set_count >= 200000){
+   //             for(int ind = 0; ind <= times_count; ind++){
+     //           fprintf(out_file, "%d,%f\n", ind * 100, times[ind]); 
+       //      }
+          //  }  
+ 
+      return C_OK;
+    }
     if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
+    //set_count++;
+    //clock_t end = clock();
+      //      if(set_count % 100 == 0){
+       //         times[times_count] = (double)(end - set_start) / CLOCKS_PER_SEC;
+       //         times_count++;
+       //     }
+	// if(set_count >= 200000){
+          //      for(int ind = 0; ind <= times_count; ind++){
+          //      fprintf(out_file, "%d,%f\n", ind * 100, times[ind]); 
+          //   }
+            //}  
+
         return C_ERR;
     } else {
         addReplyBulk(c,o);
+    /*set_count++;
+    clock_t end = clock();
+            if(set_count % 100 == 0){
+                times[times_count] = (double)(end - set_start) / CLOCKS_PER_SEC;
+                times_count++;
+            }
+ if(set_count >= 200000){
+                for(int ind = 0; ind <= times_count; ind++){
+                fprintf(out_file, "%d,%f\n", ind * 100, times[ind]); 
+             }
+            }  */
+
+
         return C_OK;
     }
 }
@@ -189,6 +354,7 @@ void getsetCommand(client *c) {
 }
 
 void setrangeCommand(client *c) {
+    //printf("RANGE \n");
     robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
@@ -308,6 +474,7 @@ void mgetCommand(client *c) {
 }
 
 void msetGenericCommand(client *c, int nx) {
+    clock_t start = clock();
     int j;
 
     if ((c->argc % 2) == 0) {
@@ -328,10 +495,51 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
+
+
+#ifdef USE_PMEM
+        robj* newVal = 0;
+        robj* newKey = 0;
+        struct bookKeeper *book = zmalloc(sizeof(struct bookKeeper));
+        TX_BEGIN (server.pm_pool) {
+
+            book->dict_offset = -1;
+            newVal = dupStringObjectPM(c->argv[j+1], book, false, &c->db->dict->ht[0]);
+            newKey = dupStringObjectPM(c->argv[j]  , book, true, &c->db->dict->ht[0]);
+            /* Set key in PM - create DictEntry and sds(key) linked to RedisObject with value
+             * Don't increment value "ref counter" as in normal process. */
+            //printf("Two pointers are %p %p \n", book->sds_robj_offset, book->val_robj_offset );
+            setKeyPM(c->db, newKey,newVal, book);
+
+            if(book->dict_offset == -1) {
+                // This means that this was a value replacement command
+                // free sds string
+                sdsfreePM(newKey->ptr);
+                // free r_object
+                PMEMoid oid;
+                oid.off = book->sds_robj_offset;
+                oid.pool_uuid_lo = server.pool_uuid;
+                pmemobj_tx_free(oid);
+            } else {
+                char* actual= book->val_offset + (uint64_t)server.pm_pool;
+            }
+
+        } TX_ONABORT {
+            printf("Set command aborted, good luck finding that out \n");
+        } TX_ONCOMMIT {
+	  //printf("Set command successfully committed\n");
+        } TX_FINALLY {
+            zfree(book);
+        } TX_END
+        #else
         setKey(c->db,c->argv[j],c->argv[j+1]);
+        #endif
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
-    server.dirty += (c->argc-1)/2;
+    server.dirty += (c->argc-1)/2; 
+    clock_t end = clock();
+    fprintf(stderr, "Time spent: %lf second\n", (double)(end - start) / CLOCKS_PER_SEC );
+    fprintf(stderr, "Rehash Time was : %lf second \n", total_time);
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
@@ -405,7 +613,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux1, *aux2;
+    robj *o, *new, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
@@ -431,13 +639,10 @@ void incrbyfloatCommand(client *c) {
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    aux1 = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,aux1);
-    decrRefCount(aux1);
+    aux = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,aux);
+    decrRefCount(aux);
     rewriteClientCommandArgument(c,2,new);
-    aux2 = createStringObject("KEEPTTL",7);
-    rewriteClientCommandArgument(c,3,aux2);
-    decrRefCount(aux2);
 }
 
 void appendCommand(client *c) {

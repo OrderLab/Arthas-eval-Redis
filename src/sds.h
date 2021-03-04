@@ -34,12 +34,13 @@
 #define __SDS_H
 
 #define SDS_MAX_PREALLOC (1024*1024)
-extern const char *SDS_NOINIT;
+const char *SDS_NOINIT;
 
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
-
+#include "book.h"
+#include <stdbool.h>
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
@@ -83,6 +84,13 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
+
+
+#ifdef USE_PMEM
+sds sdsnewlenPM(const void *init, size_t initlen, struct bookKeeper *book, bool forKey);
+sds sdsdupPM(const sds s, struct bookKeeper *book, bool forKey);
+void sdsfreePM(sds s);
+#endif
 
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];

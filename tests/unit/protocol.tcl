@@ -72,11 +72,7 @@ start_server {tags {"protocol"}} {
     foreach seq [list "\x00" "*\x00" "$\x00"] {
         incr c
         test "Protocol desync regression test #$c" {
-            if {$::tls} {
-                set s [::tls::socket [srv 0 host] [srv 0 port]]
-            } else {
-                set s [socket [srv 0 host] [srv 0 port]]
-            }
+            set s [socket [srv 0 host] [srv 0 port]]
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]

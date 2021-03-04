@@ -1,0 +1,4 @@
+#!/bin/bash
+#./parallel_commands "cat data0.txt | ./redis-cli --pipe" "cat data1.txt | ./redis-cli --pipe" "cat data2.txt | ./redis-cli --pipe" "cat data3.txt | ./redis-cli --pipe" "cat data4.txt | ./redis-cli --pipe" "cat data5.txt | ./redis-cli --pipe" "cat data6.txt | ./redis-cli --pipe" "cat data7.txt | ./redis-cli --pipe"
+cat data0.txt | ./redis-cli --pipe & cat data1.txt | ./redis-cli --pipe & cat data2.txt | ./redis-cli --pipe & cat data3.txt | ./redis-cli --pipe & cat data4.txt | ./redis-cli --pipe & cat data5.txt | ./redis-cli --pipe & cat data6.txt | ./redis-cli --pipe & cat data7.txt | ./redis-cli --pipe &
+

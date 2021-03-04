@@ -4,6 +4,7 @@
 *.so
 *.d
 *.log
+*.bc
 dump.rdb
 redis-benchmark
 redis-check-aof
