@@ -198,7 +198,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             if (job->arg1){
 		printf("arg1 %s\n", job->arg1);
 		printf("%p\n", &(job->arg1));
-		sleep(50);
+		//sleep(50);
 		//sleep(600);
                 lazyfreeFreeObjectFromBioThread(job->arg1);
 	}
