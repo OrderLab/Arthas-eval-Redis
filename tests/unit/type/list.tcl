@@ -436,11 +436,8 @@ start_server {
 
         test "$pop: with non-integer timeout" {
             set rd [redis_deferring_client]
-            r del blist1
-            $rd $pop blist1 0.1
-            r rpush blist1 foo
-            assert_equal {blist1 foo} [$rd read]
-            assert_equal 0 [r exists blist1]
+            $rd $pop blist1 1.1
+            assert_error "ERR*not an integer*" {$rd read}
         }
 
         test "$pop: with zero timeout should block indefinitely" {

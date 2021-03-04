@@ -41,7 +41,13 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
-    } else {
+	//Adding temp string
+    }
+   else if(obj->type == OBJ_STRING){
+   	dict *ht = obj->ptr;
+   	return 65;
+   } 
+    else {
         return 1; /* Everything else is a single allocation. */
     }
 }
@@ -52,8 +58,10 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * will be reclaimed in a different bio.c thread. */
 #define LAZYFREE_THRESHOLD 64
 int dbAsyncDelete(redisDb *db, robj *key) {
+    printf("async delete\n");
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+	printf("key is %s\n", key->ptr);
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
 
     /* If the value is composed of a few allocations, to free in a lazy way
@@ -62,8 +70,9 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
+	printf("key is %sval is %s\n", key->ptr,val); 
         size_t free_effort = lazyfreeGetFreeEffort(val);
-
+	printf("free effort is %ld %ld\n", free_effort, LAZYFREE_THRESHOLD);
         /* If releasing the object is too much work, do it in the background
          * by adding the object to the lazy free list.
          * Note that if the object is shared, to reclaim it now it is not
@@ -76,16 +85,20 @@ int dbAsyncDelete(redisDb *db, robj *key) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
+	    printf("end before time no no\n");
         }
     }
 
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
     if (de) {
+        //sleep(100);
         dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key);
-        return 1;
+	printf("proble\n");
+	return 1;
     } else {
+	printf("return 0\n");
         return 0;
     }
 }
@@ -127,8 +140,14 @@ void slotToKeyFlushAsync(void) {
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
 void lazyfreeFreeObjectFromBioThread(robj *o) {
-    decrRefCount(o);
+    printf("first h\n");
+    exit(-1);
+    TX_BEGIN(server.pm_pool){
+    decrRefCountPM(o);
+   } TX_END
+	printf("second\n");
     atomicDecr(lazyfree_objects,1);
+	printf("third\n");
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the

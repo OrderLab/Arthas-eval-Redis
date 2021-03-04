@@ -41,13 +41,9 @@ distclean:
 
 .PHONY: distclean
 
-ifeq ($(BUILD_TLS),yes)
-    HIREDIS_MAKE_FLAGS = USE_SSL=1
-endif
-
 hiredis: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd hiredis && $(MAKE) static $(HIREDIS_MAKE_FLAGS)
+	cd hiredis && $(MAKE) static
 
 .PHONY: hiredis
 

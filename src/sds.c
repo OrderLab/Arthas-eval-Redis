@@ -39,6 +39,13 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+
+#ifdef USE_PMEM
+#include "server.h"
+#include "libpmemobj.h"
+//#include "libmpmem.h"
+#endif
+
 const char *SDS_NOINIT = "SDS_NOINIT";
 
 static inline int sdsHdrSize(char type) {
@@ -144,6 +151,77 @@ sds sdsnewlen(const void *init, size_t initlen) {
     return s;
 }
 
+#ifdef USE_PMEM
+sds sdsnewlenPM(const void *init, size_t initlen, struct bookKeeper *book, bool forKey) {
+    void *sh;
+    sds s;
+  TX_BEGIN(server.pm_pool){
+    PMEMoid oid;
+    char type = sdsReqType(initlen);
+    /* Empty strings are usually created in order to append. Use type 8
+     * since type 5 is not good at this. */
+    if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
+    int hdrlen = sdsHdrSize(type);
+    unsigned char *fp; /* flags pointer. */
+
+    oid = pmemobj_tx_zalloc((hdrlen+initlen+1),1);
+    sh = pmemobj_direct(oid);
+    //printf("oid off creation in sdsnewlenPM is %ld\n", oid.off);
+    if (!init)
+        memset(sh, 0, hdrlen+initlen+1);
+    if (sh == NULL) return NULL;
+    s = (char*)sh+hdrlen;
+    if(forKey){
+        book->sds_offset = oid.off + hdrlen;
+    }
+    else{
+        book->val_offset = oid.off + hdrlen;
+    }
+    fp = ((unsigned char*)s)-1;
+    switch(type) {
+        case SDS_TYPE_5: {
+            *fp = type | (initlen << SDS_TYPE_BITS);
+            break;
+        }
+        case SDS_TYPE_8: {
+            SDS_HDR_VAR(8,s);
+            sh->len = initlen;
+            sh->alloc = initlen;
+            *fp = type;
+            break;
+        }
+        case SDS_TYPE_16: {
+            SDS_HDR_VAR(16,s);
+            sh->len = initlen;
+            sh->alloc = initlen;
+            *fp = type;
+            break;
+        }
+        case SDS_TYPE_32: {
+            SDS_HDR_VAR(32,s);
+            sh->len = initlen;
+            sh->alloc = initlen;
+            *fp = type;
+            break;
+        }
+        case SDS_TYPE_64: {
+            SDS_HDR_VAR(64,s);
+            sh->len = initlen;
+            sh->alloc = initlen;
+            *fp = type;
+            break;
+        }
+    }
+    if (initlen && init)
+        memcpy(s, init, initlen);
+    s[initlen] = '\0';
+  }TX_ONABORT{
+    printf("sds new len abortion %s\n", pmemobj_errormsg());
+  }TX_END
+    return s;
+}
+#endif
+
 /* Create an empty (zero length) sds string. Even in this case the string
  * always has an implicit null term. */
 sds sdsempty(void) {
@@ -161,11 +239,33 @@ sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
 
+#ifdef USE_PMEM
+/* Duplicate an sds string. */
+sds sdsdupPM(const sds s, struct bookKeeper *book, bool forKey) {
+    return sdsnewlenPM(s, sdslen(s), book, forKey);
+}
+#endif
+
 /* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfree(sds s) {
     if (s == NULL) return;
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
+
+#ifdef USE_PMEM
+/* Free an sds string. No operation is performed if 's' is NULL. */
+void sdsfreePM(sds s) {
+    PMEMoid oid;
+    if (s == NULL) return;
+    oid.off = (uint64_t)((char*)s-sdsHdrSize(s[-1])) - (uint64_t)server.pm_pool;
+    oid.pool_uuid_lo = server.pool_uuid;
+    if(pmemobj_type_num(oid) != 1){
+      return;
+    }
+    //printf("oid.off is %ld and type num is %d\n", oid.off, pmemobj_type_num(oid));
+    pmemobj_tx_free(oid);
+}
+#endif
 
 /* Set the sds string length to the length as obtained with strlen(), so
  * considering as content only up to the first null term character.
@@ -257,11 +357,7 @@ sds sdsRemoveFreeSpace(sds s) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
-    size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
-
-    /* Return ASAP if there is no space left. */
-    if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
@@ -603,10 +699,6 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     long i;
     va_list ap;
 
-    /* To avoid continuous reallocations, let's start with a buffer that
-     * can hold at least two times the format string itself. It's not the
-     * best heuristic but seems to work in practice. */
-    s = sdsMakeRoomFor(s, initlen + strlen(fmt)*2);
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
     i = initlen; /* Position of the next byte to write to dest str. */

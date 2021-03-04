@@ -1,0 +1,2 @@
+#!/bin/bash
+cat data.txt | ./redis-cli --pipe  & echo $! > python.pid

@@ -1,0 +1,9 @@
+#include <stdio.h>
+
+int main(){
+	FILE *fp;
+	fp = fopen("data.txt", "w+");
+	for(int i = 0; i < 100000; i++){
+		fprintf(fp, "SET bey%d balue%d\n", i, i);
+	}
+}

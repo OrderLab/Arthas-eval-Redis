@@ -143,6 +143,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 }
 
 void *bioProcessBackgroundJobs(void *arg) {
+    // printf("job arg is %lu\n");
     struct bio_job *job;
     unsigned long type = (unsigned long) arg;
     sigset_t sigset;
@@ -193,12 +194,22 @@ void *bioProcessBackgroundJobs(void *arg) {
              * arg1 -> free the object at pointer.
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
              * only arg3 -> free the skiplist. */
-            if (job->arg1)
+	    printf("free\n");
+            if (job->arg1){
+		printf("arg1 %s\n", job->arg1);
+		printf("%p\n", &(job->arg1));
+		sleep(50);
+		//sleep(600);
                 lazyfreeFreeObjectFromBioThread(job->arg1);
-            else if (job->arg2 && job->arg3)
+	}
+            else if (job->arg2 && job->arg3){
+		printf("arg2\n");
                 lazyfreeFreeDatabaseFromBioThread(job->arg2,job->arg3);
-            else if (job->arg3)
+		}
+            else if (job->arg3){
+		printf("arg3\n");
                 lazyfreeFreeSlotsMapFromBioThread(job->arg3);
+		}
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }

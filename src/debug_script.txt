@@ -1,0 +1,8 @@
+set key0 val0
+set key1 val1
+set key2 val2
+set key3 val3
+set key4 val4
+set key5 val5
+set key6 val6
+set key7 val7

@@ -1,0 +1,4 @@
+#!/bin/bash
+gcc -o update_million update_million.c
+./update_million
+cat data.txt | ./redis-cli --pipe

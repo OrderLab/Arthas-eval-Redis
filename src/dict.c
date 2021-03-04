@@ -34,7 +34,11 @@
  */
 
 #include "fmacros.h"
+#ifdef USE_PMEM
+#include "libpmemobj.h"
+#endif
 
+#include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -42,6 +46,8 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <libpmemobj/base.h>
+#include <libpmemobj/tx_base.h>
 
 #include "dict.h"
 #include "zmalloc.h"
@@ -59,6 +65,7 @@
  * Note that even when dict_can_resize is set to 0, not all resizes are
  * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
+struct dictServer dstemp;
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
 
@@ -66,7 +73,7 @@ static unsigned int dict_force_resize_ratio = 5;
 
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
-static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
+static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -188,7 +195,7 @@ int dictExpand(dict *d, unsigned long size)
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
-
+    //printf("here\n");
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
 
@@ -258,8 +265,15 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
+	//printf("rehash step\n");
     if (d->iterators == 0) dictRehash(d,1);
 }
+
+#ifdef USE_PMEM
+void dictRehashStepPM(dict *d){
+    if (d->iterators == 0) dictRehash(d,1);
+}
+#endif
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
@@ -270,6 +284,50 @@ int dictAdd(dict *d, void *key, void *val)
     dictSetVal(d, entry, val);
     return DICT_OK;
 }
+#ifdef USE_PMEM
+dictEntry *dictAddRawPM(dict *d, void *key, struct bookKeeper *book)
+{
+    long index;
+    dictEntry *entry;
+    dictht *ht;
+    PMEMoid oid;
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of the new element, or -1 if
+     * the element already exists. */
+    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key))) == -1)
+        return NULL;
+    /* Allocate the memory and store the new entry.
+     * Insert the element in top, with the assumption that in a database
+     * system it is more likely that recently added entries are accessed
+     * more frequently. */
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+
+    entry = zmalloc(sizeof(*entry));
+    book->dict_offset = 0;
+
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+    //entry->key_robj_offset = book->sds_robj_offset;
+    /* Set the hash entry fields. */
+    dictSetKey(d, entry, key);
+    return entry;
+}
+#endif
+
+#ifdef USE_PMEM
+/* Add an element to the target hash table */
+int dictAddPM(dict *d, void *key, void *val, struct bookKeeper *book)
+{
+    dictEntry *entry = dictAddRawPM(d,key, book);
+
+    if (!entry) return DICT_ERR;
+    dictSetVal(d, entry, val);
+    return DICT_OK;
+}
+#endif
 
 /* Low level add or find:
  * This function adds the entry but instead of setting a value returns the
@@ -299,7 +357,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
+    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key))) == -1)
         return NULL;
 
     /* Allocate the memory and store the new entry.
@@ -316,6 +374,8 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     dictSetKey(d, entry, key);
     return entry;
 }
+
+
 
 /* Add or Overwrite:
  * Add an element, discarding the old value if the key already exists.
@@ -345,6 +405,36 @@ int dictReplace(dict *d, void *key, void *val)
     return 0;
 }
 
+#ifdef USE_PMEM
+
+long getDictIndex(dict *d, void *key_robj) {
+    return _dictKeyIndex(d, key_robj, dictHashKey(d,key_robj));
+}
+int dictReplacePM(dict *d, void *key, void *val, struct bookKeeper *book)
+{
+    dictEntry *entry, *existing, auxentry;
+
+    /* Try to add the element. If the key
+     * does not exists dictAdd will succeed. */
+    entry = dictAddRawPM(d,key, book);
+    if (entry) {
+        dictSetVal(d, entry, val);
+        return 1;
+    }
+
+    /* Set the new value and free the old one. Note that it is important
+     * to do that in this order, as the value may just be exactly the same
+     * as the previous one. In this context, think to reference counting,
+     * you want to increment (set), and then decrement (free), and not the
+     * reverse. */
+    entry = dictFind(d, key);
+    auxentry = *entry;
+    dictSetVal(d, entry, val);
+    dictFreeVal(d, &auxentry);
+    return 0;
+}
+
+#endif
 /* Add or Find:
  * dictAddOrFind() is simply a version of dictAddRaw() that always
  * returns the hash entry of the specified key, even if the key already
@@ -362,6 +452,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
+    clock_t start = clock();
     uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
@@ -382,12 +473,35 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     prevHe->next = he->next;
                 else
                     d->ht[table].table[idx] = he->next;
+                // We have moved this piece off code inside ifdef USE_PMEM and else
+                // because dictFreeKey and val call tx_free inside them. We want them to be rolled
+                // back in case the below transaction fails, so nesting them in a way.
+
+#ifdef USE_PMEM
+                TX_BEGIN(dstemp.pm_pool) {
+
+                    // The below have transaction nesting
+                    if (!nofree) {
+                    dictFreeKey(d, he);
+                    dictFreeVal(d, he);
+                    }
+
+                } TX_ONCOMMIT {
+                        //printf("Woohhoooo, a sucesful transaction\n");
+                } TX_ONABORT {
+                        printf("So we aboted, the change you tried wont happen, but you wont know about it, SAD\n");
+                } TX_END
+
+#else
                 if (!nofree) {
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
-                    zfree(he);
                 }
+                zfree(he);
+#endif
                 d->ht[table].used--;
+		clock_t end = clock();
+fprintf(stderr, "Time spent: %lf second\n",  (double)(end - start) / CLOCKS_PER_SEC);
                 return he;
             }
             prevHe = he;
@@ -453,7 +567,14 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
             nextHe = he->next;
             dictFreeKey(d, he);
             dictFreeVal(d, he);
+#ifdef USE_PMEM
+            PMEMoid oid;
+            oid.off = (uint64_t)he - (uint64_t)dstemp.pm_pool;
+            oid.pool_uuid_lo = dstemp.pool_uuid;
+            pmemobj_tx_free(oid);
+#else
             zfree(he);
+#endif
             ht->used--;
             he = nextHe;
         }
@@ -483,6 +604,7 @@ dictEntry *dictFind(dict *d, const void *key)
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
+
         he = d->ht[table].table[idx];
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key))
@@ -739,30 +861,6 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     return stored;
 }
 
-/* This is like dictGetRandomKey() from the POV of the API, but will do more
- * work to ensure a better distribution of the returned element.
- *
- * This function improves the distribution because the dictGetRandomKey()
- * problem is that it selects a random bucket, then it selects a random
- * element from the chain in the bucket. However elements being in different
- * chain lengths will have different probabilities of being reported. With
- * this function instead what we do is to consider a "linear" range of the table
- * that may be constituted of N buckets with chains of different lengths
- * appearing one after the other. Then we report a random element in the range.
- * In this way we smooth away the problem of different chain lenghts. */
-#define GETFAIR_NUM_ENTRIES 15
-dictEntry *dictGetFairRandomKey(dict *d) {
-    dictEntry *entries[GETFAIR_NUM_ENTRIES];
-    unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
-    /* Note that dictGetSomeKeys() may return zero elements in an unlucky
-     * run() even if there are actually elements inside the hash table. So
-     * when we get zero, we call the true dictGetRandomKey() that will always
-     * yeld the element if the hash table has at least one. */
-    if (count == 0) return dictGetRandomKey(d);
-    unsigned int idx = rand() % count;
-    return entries[idx];
-}
-
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
@@ -871,10 +969,6 @@ unsigned long dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
-    /* Having a safe iterator means no rehashing can happen, see _dictRehashStep.
-     * This is needed in case the scan callback tries to do dictFind or alike. */
-    d->iterators++;
-
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
         m0 = t0->sizemask;
@@ -941,9 +1035,6 @@ unsigned long dictScan(dict *d,
         } while (v & (m0 ^ m1));
     }
 
-    /* undo the ++ at the top */
-    d->iterators--;
-
     return v;
 }
 
@@ -991,22 +1082,21 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
+static long _dictKeyIndex(dict *d, const void *key, uint64_t hash)
 {
     unsigned long idx, table;
     dictEntry *he;
-    if (existing) *existing = NULL;
 
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
+
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                if (existing) *existing = he;
+            if (dictCompareKeys(d, key, he->key)) {
                 return -1;
             }
             he = he->next;

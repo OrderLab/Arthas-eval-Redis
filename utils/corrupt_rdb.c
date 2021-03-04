@@ -21,9 +21,8 @@ int main(int argc, char **argv) {
     }
 
     srand(time(NULL));
-    char *filename = argv[1];
     cycles = atoi(argv[2]);
-    fd = open(filename,O_RDWR);
+    fd = open("dump.rdb",O_RDWR);
     if (fd == -1) {
         perror("open");
         exit(1);

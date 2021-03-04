@@ -27,9 +27,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __BIO_H
-#define __BIO_H
-
 /* Exported API */
 void bioInit(void);
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3);
@@ -43,5 +40,3 @@ void bioKillThreads(void);
 #define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
 #define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
 #define BIO_NUM_OPS       3
-
-#endif

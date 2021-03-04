@@ -1,3 +1,12 @@
+proc start_bg_complex_data {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
+}
+
+proc stop_bg_complex_data {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
 start_server {tags {"repl"}} {
     start_server {} {
 

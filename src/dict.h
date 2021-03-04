@@ -34,13 +34,14 @@
  */
 
 #include <stdint.h>
-
 #ifndef __DICT_H
 #define __DICT_H
 
 #define DICT_OK 0
 #define DICT_ERR 1
 
+#include "server.h"
+#include "book.h"
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
@@ -53,6 +54,7 @@ typedef struct dictEntry {
         double d;
     } v;
     struct dictEntry *next;
+    //uint64_t key_robj_offset;
 } dictEntry;
 
 typedef struct dictType {
@@ -147,6 +149,16 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 
+
+#ifdef USE_PMEM
+/* PMEM-specific API */
+int dictAddPM(dict *d, void *key, void *val, struct bookKeeper *book);
+dictEntry *dictAddRawPM(dict *d, void *key, struct bookKeeper *book);
+int dictReplacePM(dict *d, void *key, void *val, struct bookKeeper *book);
+long getDictIndex(dict *d, void *key_robj);
+void dictRehashStepPM(dict *d);
+#endif
+
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
@@ -166,7 +178,6 @@ dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
-dictEntry *dictGetFairRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, int len);

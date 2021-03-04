@@ -85,7 +85,7 @@ int THPGetAnonHugePagesSize(void) {
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
- * of time series, each time serie is created on demand in order to avoid
+ * of time series, each time serie is craeted on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
@@ -95,7 +95,7 @@ void latencyMonitorInit(void) {
  * This function is usually called via latencyAddSampleIfNeeded(), that
  * is a macro that only adds the sample if the latency is higher than
  * server.latency_monitor_threshold. */
-void latencyAddSample(const char *event, mstime_t latency) {
+void latencyAddSample(char *event, mstime_t latency) {
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
     time_t now = time(NULL);
     int prev;
@@ -599,7 +599,7 @@ NULL
         event = dictGetKey(de);
 
         graph = latencyCommandGenSparkeline(event,ts);
-        addReplyVerbatim(c,graph,sdslen(graph),"txt");
+        addReplyBulkCString(c,graph);
         sdsfree(graph);
     } else if (!strcasecmp(c->argv[1]->ptr,"latest") && c->argc == 2) {
         /* LATENCY LATEST */
@@ -608,7 +608,7 @@ NULL
         /* LATENCY DOCTOR */
         sds report = createLatencyReport();
 
-        addReplyVerbatim(c,report,sdslen(report),"txt");
+        addReplyBulkCBuffer(c,report,sdslen(report));
         sdsfree(report);
     } else if (!strcasecmp(c->argv[1]->ptr,"reset") && c->argc >= 2) {
         /* LATENCY RESET */

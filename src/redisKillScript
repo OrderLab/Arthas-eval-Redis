@@ -1,0 +1,19 @@
+#!/bin/bash
+# ps -ef | grep ./redis-server | grep -v grep | awk '{print $2}' | sudo xargs kill
+if [ ! -f redis.pid ]; then
+  echo "No prior run found. Skip"
+  exit 0
+fi
+redis_pid=$(cat redis.pid)
+if [ -z "$redis_pid" ];then
+  echo "Empty pid file. Skip"
+  rm redis.pid
+  exit 0
+fi
+kill -9 $redis_pid
+if [ $? -eq 0 ]; then
+  echo "Stopped redis server (PID $redis_pid)"
+  rm redis.pid
+else
+  echo "Failed to stop redis server (PID $redis_pid)"
+fi

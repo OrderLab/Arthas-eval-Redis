@@ -11,55 +11,22 @@ proc fail {msg} {
 
 proc assert {condition} {
     if {![uplevel 1 [list expr $condition]]} {
-        set context "(context: [info frame -1])"
-        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
-    }
-}
-
-proc assert_no_match {pattern value} {
-    if {[string match $pattern $value]} {
-        set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to not match '$pattern' $context"
+        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
     }
 }
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to match '$pattern' $context"
+        error "assertion:Expected '$value' to match '$pattern'"
     }
 }
 
-proc assert_equal {value expected {detail ""}} {
+proc assert_equal {expected value {detail ""}} {
     if {$expected ne $value} {
         if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
+            set detail " (detail: $detail)"
         }
-        error "assertion:Expected '$value' to be equal to '$expected' $detail"
-    }
-}
-
-proc assert_lessthan {value expected {detail ""}} {
-    if {!($value < $expected)} {
-        if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
-        }
-        error "assertion:Expected '$value' to be lessthan to '$expected' $detail"
-    }
-}
-
-proc assert_range {value min max {detail ""}} {
-    if {!($value <= $max && $value >= $min)} {
-        if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
-        }
-        error "assertion:Expected '$value' to be between to '$min' and '$max' $detail"
+        error "assertion:Expected '$value' to be equal to '$expected'$detail"
     }
 }
 
