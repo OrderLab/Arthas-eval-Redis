@@ -56,6 +56,9 @@ stream *streamNew(void) {
         oid = pmemobj_tx_zalloc(sizeof(*s), 1); // Type 5 maybe for hashtables ONLY?
         s = pmemobj_direct(oid);
     }TX_END
+    TX_BEGIN(server.pm_pool){
+      pmemobj_tx_add_range_direct(s, sizeof(*s));
+    }TX_END
     //stream *s = zmalloc(sizeof(*s));
     s->rax = raxNew();
     s->length = 0;
@@ -545,6 +548,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
          * iteration or the previous listpack was completely iterated.
          * Go to the next node. */
         if (si->lp == NULL || si->lp_ele == NULL) {
+            printf("NULL LP\n");
             if (!si->rev && !raxNext(&si->ri)) return 0;
             else if (si->rev && !raxPrev(&si->ri)) return 0;
             serverAssert(si->ri.key_len == sizeof(streamID));
@@ -564,12 +568,14 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             if (!si->rev) {
                 /* If we are iterating in normal order, skip the master fields
                  * to seek the first actual entry. */
+                printf("it is stuck in lpnext\n");
                 for (uint64_t i = 0; i < si->master_fields_count; i++)
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             } else {
                 /* If we are iterating in reverse direction, just seek the
                  * last part of the last entry in the listpack (that is, the
                  * fields count). */
+                printf("reverse so start with lpLast\n");
                 si->lp_ele = lpLast(si->lp);
             }
         } else if (si->rev) {
@@ -673,7 +679,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 while(prev_times--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             }
         }
-
+	printf("END OF LISTPACK REACHED\n");
         /* End of listpack reached. Try the next/prev radix tree node. */
     }
 }
@@ -1002,6 +1008,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         arraylen++;
         if (count && count == arraylen) break;
     }
+    printf("exit while loop\n");
     streamIteratorStop(&si);
     if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
     return arraylen;

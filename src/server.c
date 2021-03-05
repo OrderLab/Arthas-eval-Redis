@@ -5089,11 +5089,12 @@ int main(int argc, char **argv) {
 
     #ifdef USE_PMEM
         PMEMoid pmemoid;
-        if(access("/mnt/mem/a.pm", F_OK) != 0){
+        if(access("/mnt/pmem/a.pm", F_OK) != 0){
                 size_t sisi = INT_MAX;
                 size_t sisi2 = INT_MAX;
                 sisi = 53* (sisi + sisi2);
-            server.pm_pool = pmemobj_create("/mnt/mem/a.pm", "store.db", sisi, 0666);
+            server.pm_pool = pmemobj_create("/mnt/pmem/a.pm", "store.db", sisi/2, 0666);
+            //server.pm_pool = pmemobj_create("/mnt/pmem/a.pm", "store.db", PMEMOBJ_MIN_POOL, 0666);
 	    pmem_pool  = server.pm_pool;
             if (server.pm_pool == NULL) {
                 printf("%s\n", pmemobj_errormsg());
@@ -5101,14 +5102,16 @@ int main(int argc, char **argv) {
             uint64_t size = sizeof(uint64_t)*4;
                 pmemoid = pmemobj_root(server.pm_pool, size);
                 uint64_t *num = pmemobj_direct(pmemoid);
-                /* TODO:  Should this go into Transactions? */
                 *num = (uint64_t)server.pm_pool;
                 *(num+1) = -1;
                 *(num+2) = -1;
                 *(num+3) = (uint64_t)server.pm_pool;
         } 
         else{
-            server.pm_pool = pmemobj_open("/mnt/mem/a.pm", "store.db");
+            server.pm_pool = pmemobj_open("/mnt/pmem/a.pm", "store.db");
+            if(server.pm_pool == NULL){
+              printf("%s\n", pmemobj_errormsg());
+            }
             uint64_t size = pmemobj_root_size(server.pm_pool);
                 pmemoid = pmemobj_root(server.pm_pool, size);
                 uint64_t *num = pmemobj_direct(pmemoid);
@@ -5170,38 +5173,63 @@ int main(int argc, char **argv) {
 
 #ifdef USE_PMEM
 void repopulate(){
+  printf("begin repopulate\n");
   TX_BEGIN(server.pm_pool){
+        printf("enter tx begin\n");
         dict *d = server.db[0].dict;
         PMEMoid pmemoid;
         uint64_t size = pmemobj_root_size(server.pm_pool);
         pmemoid = pmemobj_root(server.pm_pool, size);
+        printf("done with root\n");
         struct dictEntry *entry = NULL;
         robj *key_robj = NULL;
         robj *val_robj = NULL;
 	robj *o = NULL;
-	stream *s = o->ptr;
+	//stream *s = o->ptr;
+        stream *s = NULL;
 	unsigned char *lp = NULL;
         float count_time_here = 0;
 	int *count = malloc(sizeof(int));
+        printf("malloc done\n");
 	unsigned char *intbuf = malloc(LP_INTBUF_SIZE);
+	unsigned char *p;
         PMEMoid adf =  POBJ_FIRST_TYPE_NUM(server.pm_pool, 2);
 	PMEMoid abc = POBJ_FIRST_TYPE_NUM(server.pm_pool, 3);
         while(adf.off){
 	    lp = pmemobj_direct(adf);
-	    printf("%s %s %d\n", lpGet(lp,count,intbuf), intbuf, *count);
-	    o = pmemobj_direct(abc);
+	    p = lpFirst(lp);
+	    while(p ){
+		uint64_t decodedLen = lpDecodeBacklen(p);
+   	        printf("len is %d\n", decodedLen);
+		if(decodedLen > 4096 || decodedLen <= 0){
+			//fprintf(stderr, "listpack is corrupted\n");
+			break;
+		}
+		p = lpNext(lp, p);
+	     }
+	    //printf("%s %s %d\n", lpGet(lp,count,intbuf), intbuf, *count);
+	    /*uint32_t len = *((uint32_t *)lp);
+	    if(len > 4096){
+		fprintf(stderr, "listpack is corrupted\n");
+	     }
+		printf("len is %d\n", len);*/
+	    /*o = pmemobj_direct(abc);
 	    o->ptr = o->ptr - (uint64_t)old_address + (uint64_t)server.pm_pool;
+		printf("o->ptr is %s\n", o->ptr);
 	    printf("lenght is %d\n", ((stream *)o->ptr)->length);
-	// o = createStreamObject();
+            if(((stream *)o->ptr)->length > 4096)
+              printf("listpack is corrupted\n");
+	    o = createStreamObject();
 	    s = o->ptr;
 	    s->length++;
 	    raxInsert(s->rax, "reqs",  sizeof(streamID), lp, NULL);
-	    dbAdd(server.db,"reqs",o);
+	    dbAdd(server.db,"reqs",o);*/
             adf = POBJ_NEXT_TYPE_NUM(adf);
         }
     }TX_ONABORT{
         printf("\n\nSILENT KILLER ABORTION\n\n");
     }TX_ONCOMMIT{
+	fprintf(stderr, "finish recovery\n");
         //printf("\n\n SUCCESS\n\n");
     }TX_FINALLY {
 

@@ -1,0 +1,9 @@
+#!/bin/bash
+(cat data2.txt | ./redis-cli --pipe) & X=$!
+Y=$!
+wait $X
+retn_code=$?
+echo 'Return val is ' 
+echo $retn_code
+wait
+exit $retn_code

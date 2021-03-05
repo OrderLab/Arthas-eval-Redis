@@ -1,0 +1,13 @@
+#!/bin/bash
+#(sleep 4 ; perl script.pl 127.0.0.1:11211; retn_code=$?) &
+(sleep 4 ; timeout 8 ./twoclientScript) & X=$!
+(sleep 10 ; ./killScript ) & Y=$!
+./runScript
+wait $X
+retn_code=$?
+#echo "job X returned $?"
+wait
+echo $X
+echo $Y
+echo $Z
+exit $retn_code

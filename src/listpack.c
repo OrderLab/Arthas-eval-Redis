@@ -215,6 +215,9 @@ unsigned char *lpNew(void) {
         oid = pmemobj_tx_zalloc(sizeof(LP_HDR_SIZE+1), 2); // Type 5 maybe for hashtables ONLY?
         lp = pmemobj_direct(oid);
     }TX_END
+    TX_BEGIN(pmem_pool){
+      pmemobj_tx_add_range_direct(lp, sizeof(LP_HDR_SIZE+1));
+    }TX_END
     //unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
@@ -294,7 +297,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
     } else {
         if (size < 64) *enclen = 1+size;
         else if (size < 4096) *enclen = 2+size;
-        else *enclen = 5+size;
+        else *enclen = 4+size;
         return LP_ENCODING_STRING;
     }
 }
@@ -305,6 +308,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
  * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
  * needed in order to encode the backlen. */
 unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
+    //printf("l is %ld\n", l);
     if (l <= 127) {
         if (buf) buf[0] = l;
         return 1;
@@ -374,7 +378,7 @@ void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
         buf[2] = (len >> 8) & 0xff;
         buf[3] = (len >> 16) & 0xff;
         buf[4] = (len >> 24) & 0xff;
-        memcpy(buf+5,s,len);
+        memcpy(buf+4,s,len);
     }
 }
 
@@ -402,6 +406,7 @@ unsigned char *lpSkip(unsigned char *p) {
     unsigned long entrylen = lpCurrentEncodedSize(p);
     entrylen += lpEncodeBacklen(NULL,entrylen);
     p += entrylen;
+    //printf("entry len is %ld\n", entrylen);
     return p;
 }
 
@@ -671,9 +676,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 	TX_BEGIN(pmem_pool){
 		PMEMoid oid;
 		oid = pmemobj_oid(lp);
+                //pmemobj_tx_add_range_direct(lp, old_listpack_bytes);
 		oid = pmemobj_tx_realloc(oid, new_listpack_bytes, 2);
 		lp = pmemobj_direct(oid);
 	}TX_END
+        TX_BEGIN(pmem_pool){
+        	pmemobj_tx_add_range_direct(lp, new_listpack_bytes);
+        }TX_END
         //if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }
@@ -694,9 +703,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 	TX_BEGIN(pmem_pool){
 		PMEMoid oid;
 		oid = pmemobj_oid(lp);
+                //pmemobj_tx_add_range_direct(lp, old_listpack_bytes);
 		oid = pmemobj_tx_realloc(oid, new_listpack_bytes, 2);
 		lp = pmemobj_direct(oid);
 	}TX_END
+	TX_BEGIN(pmem_pool){
+                pmemobj_tx_add_range_direct(lp, new_listpack_bytes);
+        }TX_END
         //if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }

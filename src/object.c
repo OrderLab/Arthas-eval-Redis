@@ -39,13 +39,16 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObject(int type, void *ptr) {
-    /*robj *o;
-    TX_BEGIN(server.pm_pool){
-	PMEMoid oid;
-	oid = pmemobj_tx_zalloc(sizeof(robj),3);
-	o = pmemobj_direct(oid);
-    }TX_END*/
-    robj *o = zmalloc(sizeof(*o));
+     robj *o;
+     /*if(type == OBJ_STREAM){
+      //robj *o;
+      TX_BEGIN(server.pm_pool){
+	  PMEMoid oid;
+   	  oid = pmemobj_tx_zalloc(sizeof(robj),3);
+  	  o = pmemobj_direct(oid);
+      }TX_END
+    }*/
+    o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -368,6 +371,10 @@ void decrRefCount(robj *o) {
         case OBJ_STREAM: freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
+       /*TX_BEGIN(server.pm_pool){
+		PMEMoid oid = pmemobj_oid(o);
+		pmemobj_tx_free(oid);
+	}TX_END*/
         zfree(o);
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");

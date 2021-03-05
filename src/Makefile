@@ -15,7 +15,7 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
-OPTIMIZATION?=-O2
+OPTIMIZATION?=-O0
 DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
@@ -72,7 +72,7 @@ endif
 # Override default settings if possible
 -include .make-settings
 
-FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
+FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -fPIC
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
@@ -152,7 +152,9 @@ ifeq  ($(USE_PMEM),yes)
         #FINAL_CFLAGS+= -DUSE_PMEM -I
         FINAL_CFLAGS+= -DUSE_PMEM -I../deps/pmdk/src/include
         FINAL_LIBS+= ../deps/pmdk/src/nondebug/libpmemobj.a ../deps/pmdk/src/nondebug/libpmem.a -ldl
+        #FINAL_CFLAGS+=/home/brian/a_bug_project/feb17/1.8-PMDK-Arthas/src/nondebug/libpmemobj.a /home/brian/a_bug_project/feb17/1.8-PMDK-Arthas/src/nondebug/libpmem.a 
         #FINAL_LIBS+= -lpmemobj -lpmem -ldl
+        #FINAL_CFLAGS+=-Wl,-rpath=/home/brian/a_bug_project/feb17/1.8-PMDK-Arthas/src/nondebug -lpmemobj -lpmem 
 endif
 
 ifeq ($(BUILD_TLS),yes)

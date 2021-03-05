@@ -141,8 +141,8 @@ sds sdsnewlen(const void *init, size_t initlen) {
     if (initlen && init)
         memcpy(s, init, initlen);
     s[initlen] = '\0';
-    printf("ending\n");
-    printf("string %s\n", s);
+    //printf("ending\n");
+    //printf("string %s\n", s);
     return s;
 }
 
@@ -160,7 +160,7 @@ sds sdsnew(const char *init) {
 
 /* Duplicate an sds string. */
 sds sdsdup(const sds s) {
-    printf("begin sdsdup\n");
+    //printf("begin sdsdup\n");
     return sdsnewlen(s, sdslen(s));
 }
 
@@ -231,7 +231,10 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
+        //if(strlen(sh) != 0)
+        //  printf("strlen is %d str is %s\n", strlen(sh), sh);
         newsh = s_realloc(sh, hdrlen+newlen+1);
+        //printf("old len is %d new len is %d\n", strlen(sh), hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
