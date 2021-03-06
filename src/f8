@@ -1,0 +1,14 @@
+#!/bin/bash
+
+(./redisRunScript ) &
+(sleep 2; (cat bad.txt | ./redis-cli --pipe))
+wait
+redis_pid=$(cat redis.pid)
+(sleep 1; ./killScript)
+
+(./redisRunScript ) &
+redis_pid=$(cat redis.pid)
+(sleep 1; ./killScript)
+
+#cleaning up
+./refreshScript
